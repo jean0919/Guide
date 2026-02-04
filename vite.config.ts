@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   // 如果您的 GitHub Pages 網址是 https://<USERNAME>.github.io/<REPO>/
   // 請將 base 設定為 '/<REPO>/'。這裡使用 './' 以增加移植性。
-  base: './',
+  base: './Guide',
   build: {
     outDir: 'dist',
   },
