@@ -1,0 +1,7 @@
+{
+  "name": "韓國雪戀5日遊小工具",
+  "description": "專為韓國雪戀冰壁咖啡5日遊設計的手機旅遊小工具，包含每日行程、天氣資訊、航班、住宿及預算管理。",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
