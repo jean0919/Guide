@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TRIP_DATA, FLIGHT_INFO, EMERGENCY_CONTACTS, TRAVEL_NOTES_CATEGORIES, KOREAN_PHRASES } from './constants';
 import { Category, ItineraryItem, DailyItinerary, Expense } from './types';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 
 // --- Icons ---
 const Icons = {
@@ -70,10 +70,20 @@ const Icons = {
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
     </svg>
+  ),
+  Plus: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+    </svg>
+  ),
+  Delete: () => (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
   )
 };
 
-// --- Helpers for Audio ---
+// --- Helpers ---
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -103,7 +113,7 @@ async function decodeAudioData(
   return buffer;
 }
 
-// --- Sub-Components ---
+// --- Components ---
 
 const WeatherHeader: React.FC<{ weather: DailyItinerary['weather'] }> = ({ weather }) => {
   const getIcon = (icon: string) => {
@@ -117,16 +127,18 @@ const WeatherHeader: React.FC<{ weather: DailyItinerary['weather'] }> = ({ weath
   };
 
   return (
-    <div className="bg-white/40 backdrop-blur-sm rounded-2xl p-4 mb-4 flex items-center justify-between border border-white/60 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className="text-3xl">{getIcon(weather.icon)}</span>
+    <div className="bg-gradient-to-br from-blue-50/80 to-indigo-50/80 backdrop-blur-md rounded-3xl p-5 mb-6 flex items-center justify-between border border-blue-100/50 shadow-sm">
+      <div className="flex items-center gap-4">
+        <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-3xl shadow-sm border border-blue-50">
+          {getIcon(weather.icon)}
+        </div>
         <div>
-          <p className="text-sm font-medium opacity-80">{weather.condition}</p>
-          <p className="text-lg font-bold tracking-tight">{weather.temp}</p>
+          <p className="text-xs font-bold text-blue-400 uppercase tracking-widest">{weather.condition}</p>
+          <p className="text-2xl font-black text-slate-800 tracking-tight">{weather.temp}</p>
         </div>
       </div>
       <div className="text-right">
-        <p className="text-[10px] uppercase tracking-widest opacity-40">Weather Forecast</p>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest opacity-60">Forecast</p>
       </div>
     </div>
   );
@@ -145,35 +157,36 @@ const ItineraryCard: React.FC<{ item: ItineraryItem }> = ({ item }) => {
   const getLabel = (cat: Category) => {
     switch (cat) {
       case Category.SIGHTSEEING: return '景點';
-      case Category.DINING: return '飲食';
+      case Category.DINING: return '美食';
       case Category.TRANSPORT: return '交通';
       default: return '其他';
     }
   };
 
   return (
-    <div className="bg-white rounded-2xl p-5 mb-4 shadow-[0_4px_12px_rgba(0,0,0,0.03)] border border-gray-100 transition-active active:scale-98">
-      <div className="flex items-start justify-between mb-2">
-        <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold ${getCategoryColor(item.category)}`}>
+    <div className="bg-white rounded-3xl p-5 mb-5 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.08)] border border-slate-50 transition-all active:scale-[0.98]">
+      <div className="flex items-center justify-between mb-3">
+        <span className={`text-[10px] px-2.5 py-0.5 rounded-full border font-black uppercase tracking-wider ${getCategoryColor(item.category)}`}>
           {getLabel(item.category)}
         </span>
-        {item.time && <span className="text-xs text-gray-400">{item.time}</span>}
+        {item.time && <span className="text-xs font-medium text-slate-400">{item.time}</span>}
       </div>
-      <h3 className="text-base font-bold text-gray-800 leading-snug mb-2">{item.title}</h3>
+      <h3 className="text-lg font-bold text-slate-800 leading-tight mb-2">{item.title}</h3>
       {item.description && (
-        <p className="text-sm text-gray-500 leading-relaxed font-light">{item.description}</p>
+        <p className="text-sm text-slate-500 leading-relaxed font-light">{item.description}</p>
       )}
     </div>
   );
 };
 
 const KoreanSection: React.FC = () => {
-  const [loading, setLoading] = useState<string | null>(null);
+  const [playingText, setPlayingText] = useState<string | null>(null);
   const [zoomedPhrase, setZoomedPhrase] = useState<any | null>(null);
   const [inputText, setInputText] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
   const [translatedResult, setTranslatedResult] = useState<any | null>(null);
 
+  // Fix: Improved translation call with responseSchema following best practices
   const handleTranslate = async () => {
     if (!inputText.trim()) return;
     setIsTranslating(true);
@@ -181,9 +194,19 @@ const KoreanSection: React.FC = () => {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Translate the following Chinese text to Korean: "${inputText}". Provide the Korean translation, its Romanized pronunciation, and its Japanese Katakana pronunciation in a JSON format: {"kr": "...", "rom": "...", "ja": "...", "zh": "${inputText}"}`,
-        config: {
+        contents: `Translate the following Chinese text to Korean: "${inputText}". Provide details for travel use.`,
+        config: { 
           responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              kr: { type: Type.STRING, description: 'The Korean translation.' },
+              rom: { type: Type.STRING, description: 'The Romanized pronunciation.' },
+              ja: { type: Type.STRING, description: 'The Japanese Katakana pronunciation.' },
+              zh: { type: Type.STRING, description: 'The original Chinese text.' }
+            },
+            required: ["kr", "rom", "ja", "zh"]
+          }
         }
       });
       const result = JSON.parse(response.text || '{}');
@@ -191,26 +214,23 @@ const KoreanSection: React.FC = () => {
     } catch (e) {
       console.error("Translation Error:", e);
     } finally {
-      setIsTranslating(null); // use null or false to reset loading state
       setIsTranslating(false);
     }
   };
 
+  // Fix: Standard usage of GoogleGenAI and response parts for TTS
   const playTTS = async (e: React.MouseEvent, text: string) => {
     e.stopPropagation();
+    if (playingText) return;
     try {
-      setLoading(text);
+      setPlayingText(text);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Say clearly in Korean: ${text}` }] }],
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
-            },
-          },
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
         },
       });
 
@@ -221,30 +241,32 @@ const KoreanSection: React.FC = () => {
         const source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(audioCtx.destination);
+        source.onended = () => setPlayingText(null);
         source.start();
+      } else {
+        setPlayingText(null);
       }
     } catch (e) {
       console.error("TTS Error:", e);
-    } finally {
-      setLoading(null);
+      setPlayingText(null);
     }
   };
 
   return (
-    <div className="p-6 pb-32">
-      <h2 className="serif text-2xl font-bold mb-6 text-neutral-800">旅遊常用韓文</h2>
+    <div className="px-6 py-10 pb-32 animate-in fade-in duration-500">
+      <h2 className="serif text-3xl font-bold mb-8 text-slate-900">語言助手</h2>
       
-      {/* Real-time Translator */}
-      <div className="mb-10 bg-neutral-900 rounded-[2.5rem] p-6 shadow-2xl">
-        <h3 className="text-[10px] text-neutral-400 font-bold uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+      {/* AI Translator */}
+      <div className="mb-12 bg-slate-900 rounded-[2.5rem] p-7 shadow-2xl shadow-slate-200">
+        <h3 className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.25em] mb-5 flex items-center gap-2">
           <Icons.Sparkles />
-          即時 AI 翻譯 (中翻韓)
+          AI 即時翻譯 (中翻韓)
         </h3>
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-5">
           <input 
             type="text" 
-            placeholder="輸入想翻譯的中文..."
-            className="flex-1 bg-white/10 text-white rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-white/30 placeholder:text-white/20"
+            placeholder="你想說什麼？"
+            className="flex-1 bg-white/10 text-white rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 placeholder:text-white/20 transition-all"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleTranslate()}
@@ -252,10 +274,10 @@ const KoreanSection: React.FC = () => {
           <button 
             onClick={handleTranslate}
             disabled={isTranslating}
-            className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all bg-white text-neutral-900 ${isTranslating ? 'opacity-50' : 'active:scale-95'}`}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all bg-white text-slate-900 shadow-xl ${isTranslating ? 'opacity-50' : 'active:scale-90'}`}
           >
             {isTranslating ? (
-              <div className="w-4 h-4 border-2 border-neutral-800 border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
             ) : (
               <Icons.Translate />
             )}
@@ -265,22 +287,20 @@ const KoreanSection: React.FC = () => {
         {translatedResult && (
           <div 
             onClick={() => setZoomedPhrase(translatedResult)}
-            className="bg-white/10 rounded-3xl p-5 border border-white/10 flex items-center justify-between animate-in fade-in zoom-in duration-300"
+            className="bg-white/5 hover:bg-white/10 rounded-3xl p-6 border border-white/10 flex items-center justify-between transition-colors animate-in zoom-in-95 duration-300"
           >
             <div className="flex-1 mr-4">
-              <p className="text-lg font-bold text-white mb-0.5">{translatedResult.kr}</p>
-              <div className="flex flex-col gap-0.5 mb-1">
-                <p className="text-[10px] text-white/40 font-medium uppercase">{translatedResult.rom}</p>
-                <p className="text-[10px] text-white/40">{translatedResult.ja}</p>
-              </div>
+              <p className="text-xl font-bold text-white mb-1 tracking-tight">{translatedResult.kr}</p>
+              <p className="text-[10px] text-white/40 font-medium uppercase tracking-widest mb-2">{translatedResult.rom}</p>
+              <p className="text-sm text-white/60 font-medium">{translatedResult.zh}</p>
             </div>
             <button 
-              disabled={loading === translatedResult.kr}
+              disabled={!!playingText}
               onClick={(e) => playTTS(e, translatedResult.kr)}
-              className={`w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center transition-all ${loading === translatedResult.kr ? 'bg-white/5 text-white/20' : 'bg-white text-neutral-900 active:scale-95'}`}
+              className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center transition-all ${playingText === translatedResult.kr ? 'bg-white/10 text-white/20' : 'bg-white text-slate-900 active:scale-90 shadow-lg'}`}
             >
-              {loading === translatedResult.kr ? (
-                <div className="w-4 h-4 border-2 border-neutral-300 border-t-transparent rounded-full animate-spin"></div>
+              {playingText === translatedResult.kr ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <Icons.Play />
               )}
@@ -289,37 +309,34 @@ const KoreanSection: React.FC = () => {
         )}
       </div>
 
-      <p className="text-[10px] text-neutral-400 mb-6 uppercase tracking-wider bg-neutral-50 p-2 rounded-lg text-center">💡 點擊卡片可放大顯示，方便向當地人出示</p>
-      
-      <div className="space-y-10">
+      <div className="space-y-12">
         {KOREAN_PHRASES.map((section, idx) => (
           <div key={idx}>
-            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <span className="w-1 h-3 bg-neutral-900 rounded-full"></span>
-              {section.category}
-            </h3>
+            <div className="flex items-center gap-3 mb-6">
+              <span className="w-1.5 h-6 bg-slate-900 rounded-full"></span>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">{section.category}</h3>
+            </div>
             <div className="space-y-4">
               {section.items.map((item, i) => (
                 <div 
                   key={i} 
                   onClick={() => setZoomedPhrase(item)}
-                  className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm flex items-center justify-between active:scale-95 transition-transform"
+                  className="bg-white group rounded-3xl p-6 border border-slate-100 shadow-sm flex items-center justify-between active:scale-[0.97] transition-all hover:shadow-md"
                 >
                   <div className="flex-1 mr-4">
-                    <p className="text-lg font-bold text-neutral-800 mb-0.5">{item.kr}</p>
-                    <div className="flex flex-col gap-0.5 mb-1">
-                      <p className="text-[10px] text-neutral-400 font-medium uppercase">{item.rom}</p>
-                      <p className="text-[10px] text-neutral-400">{item.ja}</p>
+                    <p className="text-xl font-bold text-slate-800 mb-1 tracking-tight">{item.kr}</p>
+                    <div className="flex flex-col gap-0.5 mb-2">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{item.rom}</p>
                     </div>
-                    <p className="text-sm text-neutral-500">{item.zh}</p>
+                    <p className="text-sm font-medium text-slate-500">{item.zh}</p>
                   </div>
                   <button 
-                    disabled={loading === item.kr}
+                    disabled={!!playingText}
                     onClick={(e) => playTTS(e, item.kr)}
-                    className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center transition-all ${loading === item.kr ? 'bg-neutral-100 text-neutral-300' : 'bg-neutral-900 text-white shadow-lg active:scale-95'}`}
+                    className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center transition-all ${playingText === item.kr ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-lg active:scale-90 group-hover:scale-105'}`}
                   >
-                    {loading === item.kr ? (
-                      <div className="w-4 h-4 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin"></div>
+                    {playingText === item.kr ? (
+                      <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
                     ) : (
                       <Icons.Play />
                     )}
@@ -334,24 +351,24 @@ const KoreanSection: React.FC = () => {
       {/* Zoom Overlay */}
       {zoomedPhrase && (
         <div 
-          className="fixed inset-0 z-[100] bg-white/98 backdrop-blur-xl flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-300"
+          className="fixed inset-0 z-[100] bg-white/98 backdrop-blur-2xl flex flex-col items-center justify-center p-10 animate-in fade-in zoom-in duration-300"
           onClick={() => setZoomedPhrase(null)}
         >
-          <button className="absolute top-10 right-10 text-neutral-400 p-2">
+          <button className="absolute top-12 right-12 text-slate-300 p-3 hover:text-slate-900 transition-colors">
             <Icons.Close />
           </button>
           
-          <div className="text-center w-full">
-            <p className="text-xs font-bold text-neutral-300 uppercase tracking-[0.4em] mb-12">Show to Local</p>
-            <h4 className="serif text-5xl font-black text-neutral-900 leading-tight mb-8 break-words px-4">
+          <div className="text-center w-full max-w-sm">
+            <p className="text-xs font-black text-slate-300 uppercase tracking-[0.5em] mb-16">Show to Local</p>
+            <h4 className="serif text-6xl font-black text-slate-900 leading-tight mb-10 break-words">
               {zoomedPhrase.kr}
             </h4>
-            <div className="h-[1px] w-24 bg-neutral-100 mx-auto mb-8" />
-            <p className="text-xl font-medium text-neutral-500 mb-2">{zoomedPhrase.zh}</p>
-            <p className="text-xs text-neutral-400 uppercase tracking-widest">{zoomedPhrase.rom}</p>
+            <div className="h-0.5 w-16 bg-slate-100 mx-auto mb-10 rounded-full" />
+            <p className="text-2xl font-bold text-slate-600 mb-4">{zoomedPhrase.zh}</p>
+            <p className="text-xs font-bold text-slate-300 uppercase tracking-[0.3em]">{zoomedPhrase.rom}</p>
           </div>
           
-          <div className="absolute bottom-20 text-neutral-300 text-[10px] uppercase tracking-widest">
+          <div className="absolute bottom-20 text-slate-300 text-[10px] font-black uppercase tracking-[0.4em]">
             Tap anywhere to close
           </div>
         </div>
@@ -368,33 +385,33 @@ const NotesSection: React.FC = () => {
   };
 
   return (
-    <div className="p-6 pb-32">
-      <h2 className="serif text-2xl font-bold mb-6 text-neutral-800">注意事項</h2>
-      <div className="space-y-4">
+    <div className="px-6 py-10 pb-32 animate-in fade-in duration-500">
+      <h2 className="serif text-3xl font-bold mb-8 text-slate-900">行前與注意事項</h2>
+      <div className="space-y-6">
         {TRAVEL_NOTES_CATEGORIES.map((cat) => (
-          <div key={cat.id} className="bg-white rounded-3xl border border-neutral-100 shadow-[0_2px_12px_rgba(0,0,0,0.02)] overflow-hidden">
+          <div key={cat.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
             <button 
               onClick={() => toggle(cat.id)}
-              className="w-full px-6 py-5 flex items-center justify-between text-left active:bg-neutral-50"
+              className="w-full px-7 py-6 flex items-center justify-between text-left active:bg-slate-50 transition-colors"
             >
-              <h3 className="text-sm font-bold text-neutral-800 flex items-center gap-2">
-                <span className="w-1 h-4 bg-neutral-900 rounded-full"></span>
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-3">
+                <span className="w-1.5 h-5 bg-slate-900 rounded-full"></span>
                 {cat.label}
               </h3>
-              <div className={expanded.includes(cat.id) ? 'rotate-180 transition-transform duration-300' : 'transition-transform duration-300'}>
+              <div className={expanded.includes(cat.id) ? 'rotate-180 transition-transform duration-500' : 'transition-transform duration-500'}>
                 <Icons.ChevronDown />
               </div>
             </button>
-            {expanded.includes(cat.id) && (
-              <div className="px-6 pb-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className={`transition-all duration-500 ease-in-out ${expanded.includes(cat.id) ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'} overflow-hidden`}>
+              <div className="px-7 pb-8 space-y-5">
                 {cat.items.map((item, idx) => (
-                  <div key={idx} className="bg-neutral-50/50 rounded-2xl p-4">
-                    <h4 className="text-xs font-bold text-neutral-700 mb-1">{item.title}</h4>
-                    <p className="text-xs text-neutral-500 leading-relaxed">{item.content}</p>
+                  <div key={idx} className="bg-slate-50/50 rounded-2xl p-5 border border-slate-100/50">
+                    <h4 className="text-xs font-black text-slate-900 mb-2 uppercase tracking-wider">{item.title}</h4>
+                    <p className="text-sm text-slate-500 leading-relaxed">{item.content}</p>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
           </div>
         ))}
       </div>
@@ -459,44 +476,46 @@ const BudgetSection: React.FC = () => {
     setExpenses(expenses.filter(e => e.id !== id));
   };
 
-  const memberStats = members.map(m => {
-    const totalPaidByMe = expenses
-      .filter(e => e.payer === m)
-      .reduce((acc, curr) => acc + curr.amount, 0);
-    
-    const totalIShouldPay = expenses.reduce((acc, curr) => {
-      if (curr.participants.includes(m)) {
-        return acc + (curr.amount / curr.participants.length);
-      }
-      return acc;
-    }, 0);
-    
-    return { name: m, balance: totalPaidByMe - totalIShouldPay, paid: totalPaidByMe };
-  });
+  const memberStats = useMemo(() => {
+    return members.map(m => {
+      const totalPaidByMe = expenses
+        .filter(e => e.payer === m)
+        .reduce((acc, curr) => acc + curr.amount, 0);
+      
+      const totalIShouldPay = expenses.reduce((acc, curr) => {
+        if (curr.participants.includes(m)) {
+          return acc + (curr.amount / curr.participants.length);
+        }
+        return acc;
+      }, 0);
+      
+      return { name: m, balance: totalPaidByMe - totalIShouldPay, paid: totalPaidByMe };
+    });
+  }, [expenses, members]);
 
   const totalBudget = expenses.reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
-    <div className="p-6 pb-32">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="serif text-2xl font-bold text-neutral-800">記帳與分帳</h2>
+    <div className="px-6 py-10 pb-32 animate-in fade-in duration-500">
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="serif text-3xl font-bold text-slate-900">預算分帳</h2>
         <button 
           onClick={() => setShowMemberManager(!showMemberManager)}
-          className="text-[10px] font-bold px-3 py-1 bg-neutral-100 rounded-full text-neutral-500 uppercase tracking-widest"
+          className="text-[10px] font-black px-4 py-2 bg-slate-100 rounded-full text-slate-600 uppercase tracking-[0.2em] shadow-sm active:scale-95 transition-all"
         >
-          {showMemberManager ? '關閉成員' : '管理成員'}
+          {showMemberManager ? '關閉' : '管理成員'}
         </button>
       </div>
       
       {showMemberManager && (
-        <div className="bg-white rounded-3xl p-6 mb-8 border border-neutral-100 shadow-sm animate-in fade-in zoom-in duration-200">
-          <h3 className="text-xs font-bold mb-4 uppercase tracking-widest text-neutral-400">成員列表</h3>
-          <div className="flex flex-wrap gap-2 mb-4">
+        <div className="bg-white rounded-[2rem] p-7 mb-10 border border-slate-100 shadow-xl animate-in zoom-in-95 duration-300">
+          <h3 className="text-xs font-black mb-5 uppercase tracking-widest text-slate-400">旅行成員</h3>
+          <div className="flex flex-wrap gap-2.5 mb-6">
             {members.map(m => (
-              <span key={m} className="px-3 py-1 bg-neutral-900 text-white text-xs rounded-full flex items-center gap-2">
+              <span key={m} className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-2xl flex items-center gap-2 shadow-sm">
                 {m}
                 {members.length > 1 && (
-                  <button onClick={() => setMembers(members.filter(x => x !== m))} className="opacity-50 hover:opacity-100">×</button>
+                  <button onClick={() => setMembers(members.filter(x => x !== m))} className="opacity-50 hover:opacity-100 text-lg">×</button>
                 )}
               </span>
             ))}
@@ -505,36 +524,40 @@ const BudgetSection: React.FC = () => {
             <input 
               type="text" 
               placeholder="新增成員姓名"
-              className="flex-1 bg-neutral-50 rounded-xl px-4 py-2 text-xs outline-none"
+              className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl px-5 py-3 text-sm outline-none focus:ring-2 focus:ring-slate-200 transition-all"
               value={newMemberName}
               onChange={(e) => setNewMemberName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addMember()}
             />
-            <button onClick={addMember} className="bg-neutral-200 text-neutral-800 px-4 py-2 rounded-xl text-xs font-bold">增加</button>
+            <button onClick={addMember} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-slate-200 active:scale-90 transition-all">
+              <Icons.Plus />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Settlement Report */}
-      <div className="bg-neutral-900 text-white rounded-3xl p-6 mb-8 shadow-xl">
-        <div className="mb-6 text-center">
-          <p className="text-neutral-400 text-[10px] tracking-widest uppercase mb-1">Total Trip Budget</p>
-          <p className="text-3xl font-bold tracking-tight">₩ {totalBudget.toLocaleString()}</p>
+      {/* Summary Report */}
+      <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-[2.5rem] p-8 mb-10 shadow-2xl shadow-slate-300 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+        <div className="mb-8 text-center">
+          <p className="text-slate-400 text-[10px] tracking-[0.4em] uppercase font-black mb-2 opacity-60">Total Spending</p>
+          <p className="text-4xl font-black tracking-tighter">₩ {totalBudget.toLocaleString()}</p>
         </div>
         
-        <div className="space-y-3 pt-4 border-t border-white/10">
+        <div className="space-y-4 pt-6 border-t border-white/10">
           {memberStats.map(stat => (
             <div key={stat.name} className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black">
                   {stat.name[0]}
                 </div>
-                <span className="text-xs">{stat.name}</span>
+                <span className="text-sm font-bold">{stat.name}</span>
               </div>
               <div className="text-right">
-                <p className={`text-xs font-bold ${stat.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <p className={`text-sm font-black tracking-tight ${stat.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {stat.balance >= 0 ? `+ ₩${Math.round(stat.balance).toLocaleString()}` : `- ₩${Math.round(Math.abs(stat.balance)).toLocaleString()}`}
                 </p>
-                <p className="text-[9px] opacity-30 tracking-tight">支出: ₩{stat.paid.toLocaleString()}</p>
+                <p className="text-[9px] text-white/30 font-bold tracking-widest uppercase">Spent: ₩{stat.paid.toLocaleString()}</p>
               </div>
             </div>
           ))}
@@ -542,32 +565,32 @@ const BudgetSection: React.FC = () => {
       </div>
 
       {/* Add Form */}
-      <div className="bg-white rounded-3xl p-5 mb-8 shadow-sm border border-neutral-100">
-        <h3 className="text-xs font-bold mb-4 uppercase text-neutral-400 tracking-widest">新增支出</h3>
-        <div className="flex flex-col gap-4">
+      <div className="bg-white rounded-[2.5rem] p-7 mb-10 shadow-sm border border-slate-50">
+        <h3 className="text-xs font-black mb-6 uppercase text-slate-400 tracking-[0.2em]">紀錄支出</h3>
+        <div className="flex flex-col gap-5">
           <input 
             type="text" 
-            placeholder="項目名稱 (例如：午餐、咖啡)" 
-            className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-neutral-200"
+            placeholder="項目 (如：炸雞、咖啡)" 
+            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
           />
           <input 
             type="number" 
             placeholder="金額 (KRW)" 
-            className="w-full bg-neutral-50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-neutral-200"
+            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all"
             value={newAmount}
             onChange={(e) => setNewAmount(e.target.value)}
           />
           
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-neutral-400 font-bold uppercase pl-1">由誰支付？</label>
+          <div className="flex flex-col gap-3">
+            <label className="text-[10px] text-slate-400 font-black uppercase tracking-widest pl-1">付款人</label>
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
               {members.map(m => (
                 <button
                   key={m}
                   onClick={() => setSelectedPayer(m)}
-                  className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedPayer === m ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-400 border border-neutral-100'}`}
+                  className={`flex-shrink-0 px-5 py-3 rounded-2xl text-xs font-bold transition-all ${selectedPayer === m ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
                 >
                   {m}
                 </button>
@@ -575,16 +598,16 @@ const BudgetSection: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-neutral-400 font-bold uppercase pl-1">分帳對象 (參與的人)</label>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-3">
+            <label className="text-[10px] text-slate-400 font-black uppercase tracking-widest pl-1">參與分帳</label>
+            <div className="grid grid-cols-2 gap-3">
               {members.map(m => (
                 <button
                   key={m}
                   onClick={() => toggleParticipant(m)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${participants.includes(m) ? 'bg-neutral-50 border-neutral-200 text-neutral-800' : 'bg-white border-dashed border-neutral-100 text-neutral-300'}`}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold border transition-all ${participants.includes(m) ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-white border-dashed border-slate-200 text-slate-300'}`}
                 >
-                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${participants.includes(m) ? 'bg-neutral-800 border-neutral-800 text-white' : 'border-neutral-200'}`}>
+                  <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${participants.includes(m) ? 'bg-slate-900 border-slate-900 text-white' : 'border-slate-200'}`}>
                     {participants.includes(m) && <Icons.Check />}
                   </div>
                   {m}
@@ -595,37 +618,40 @@ const BudgetSection: React.FC = () => {
 
           <button 
             onClick={addExpense}
-            className="bg-neutral-800 text-white w-full py-3 rounded-xl text-sm font-bold active:scale-98 transition-transform shadow-lg shadow-neutral-200"
+            className="bg-slate-900 text-white w-full py-5 rounded-[1.5rem] text-sm font-black active:scale-[0.98] transition-all shadow-xl shadow-slate-200 mt-2"
           >
-            紀錄支出
+            確定紀錄
           </button>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {expenses.length === 0 ? (
-          <div className="text-center py-10 opacity-30 italic text-sm">尚無支出紀錄</div>
+          <div className="text-center py-20 bg-slate-50/50 rounded-[2rem] border border-dashed border-slate-100">
+            <p className="text-slate-300 text-sm italic font-medium">尚無支出紀錄</p>
+          </div>
         ) : (
           expenses.map((expense) => (
-            <div key={expense.id} className="bg-white rounded-3xl border border-neutral-100 shadow-[0_2px_8px_rgba(0,0,0,0.02)] overflow-hidden">
-              <div className="p-5 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-2xl bg-neutral-900 text-white flex items-center justify-center">
-                    <Icons.Wallet />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-neutral-800">{expense.title}</p>
-                    <p className="text-[9px] text-neutral-400 uppercase tracking-tighter">
-                      {expense.payer} 支付了此項 ₩{expense.amount.toLocaleString()}
-                    </p>
-                  </div>
+            <div key={expense.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex items-center justify-between group animate-in slide-in-from-right-4 duration-300">
+              <div className="flex items-center gap-5">
+                <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-inner">
+                  <Icons.Wallet />
                 </div>
-                <div className="flex items-center gap-4">
-                  <p className="text-sm font-bold text-neutral-700">₩{expense.amount.toLocaleString()}</p>
-                  <button onClick={() => deleteExpense(expense.id)} className="text-red-100 hover:text-red-500 transition-colors p-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></svg>
-                  </button>
+                <div>
+                  <p className="text-base font-bold text-slate-800">{expense.title}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                    {expense.payer} 付款 • {expense.participants.length} 人平分
+                  </p>
                 </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <p className="text-base font-black text-slate-700">₩{expense.amount.toLocaleString()}</p>
+                <button 
+                  onClick={() => deleteExpense(expense.id)} 
+                  className="text-slate-200 hover:text-rose-500 transition-colors p-2 active:scale-90"
+                >
+                  <Icons.Delete />
+                </button>
               </div>
             </div>
           ))
@@ -637,39 +663,46 @@ const BudgetSection: React.FC = () => {
 
 const InfoSection: React.FC = () => {
   return (
-    <div className="p-6 pb-32">
-      <h2 className="serif text-2xl font-bold mb-6 text-neutral-800">旅遊資訊</h2>
+    <div className="px-6 py-10 pb-32 animate-in fade-in duration-500">
+      <h2 className="serif text-3xl font-bold mb-10 text-slate-900">核心旅遊資訊</h2>
       
-      {/* Flight Info */}
-      <div className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <Icons.Plane />
-          <h3 className="font-bold text-neutral-800">航班資訊</h3>
+      {/* Flight Boarding Pass Style */}
+      <div className="mb-14">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Icons.Plane /></div>
+          <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">航班細節</h3>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-6">
           {FLIGHT_INFO.map((flight, idx) => (
-            <div key={idx} className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <span className="bg-neutral-100 text-[10px] font-black px-2 py-0.5 rounded text-neutral-600 tracking-tighter uppercase">{flight.no}</span>
-                <span className="text-xs font-medium text-neutral-400">{flight.date}</span>
+            <div key={idx} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-lg shadow-slate-100 overflow-hidden">
+              <div className="bg-slate-900 px-7 py-4 flex justify-between items-center">
+                <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Jin Air</span>
+                <span className="bg-white/10 text-[10px] font-black px-3 py-1 rounded-full text-white tracking-widest">{flight.no}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="text-center">
-                  <p className="text-xs text-neutral-400 mb-1">DEPART</p>
-                  <p className="text-lg font-bold">{flight.from.split(' ')[0]}</p>
-                  <p className="text-xs font-medium text-neutral-500">{flight.from.match(/\((.*?)\)/)?.[1]}</p>
-                </div>
-                <div className="flex-1 flex flex-col items-center px-4">
-                  <div className="w-full h-[1px] bg-neutral-100 relative">
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2">
+              <div className="p-8">
+                <div className="flex justify-between items-center mb-6">
+                  <div className="text-center">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">Depart</p>
+                    <p className="text-3xl font-black text-slate-800">{flight.from.split(' ')[0]}</p>
+                    <p className="text-xs font-bold text-slate-500 mt-1">{flight.from.match(/\((.*?)\)/)?.[1]}</p>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center px-6 relative">
+                    <div className="w-full h-[1px] border-t border-dashed border-slate-200 mb-1"></div>
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[1px] bg-white px-3 text-slate-200">
                       <Icons.Plane />
                     </div>
                   </div>
+                  <div className="text-center">
+                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">Arrive</p>
+                    <p className="text-3xl font-black text-slate-800">{flight.to.split(' ')[0]}</p>
+                    <p className="text-xs font-bold text-slate-500 mt-1">{flight.to.match(/\((.*?)\)/)?.[1]}</p>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-xs text-neutral-400 mb-1">ARRIVE</p>
-                  <p className="text-lg font-bold">{flight.to.split(' ')[0]}</p>
-                  <p className="text-xs font-medium text-neutral-500">{flight.to.match(/\((.*?)\)/)?.[1]}</p>
+                <div className="flex justify-between items-center pt-6 border-t border-slate-50">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{flight.date}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -677,40 +710,48 @@ const InfoSection: React.FC = () => {
         </div>
       </div>
 
-      <div className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <Icons.Bed />
-          <h3 className="font-bold text-neutral-800">住宿明細</h3>
+      <div className="mb-14">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Icons.Bed /></div>
+          <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">下榻飯店</h3>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-5">
           {Array.from(new Set(TRIP_DATA.map(d => d.hotel.name))).map((hotelName, idx) => {
             const hotel = TRIP_DATA.find(d => d.hotel.name === hotelName)?.hotel;
-            if (!hotel || hotel.name === '溫暖的家') return null;
+            if (!hotel || hotel.name === '溫寒的家') return null;
             return (
-              <div key={idx} className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm">
-                <h4 className="text-sm font-bold mb-2 text-neutral-800">{hotel.name}</h4>
-                <p className="text-xs text-neutral-500 mb-1 leading-relaxed">{hotel.address}</p>
-                <p className="text-xs font-bold text-neutral-700">{hotel.phone}</p>
+              <div key={idx} className="bg-white rounded-3xl p-7 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                <h4 className="text-lg font-bold mb-2 text-slate-800">{hotel.name}</h4>
+                <div className="flex items-start gap-2 mb-4">
+                  <div className="w-4 h-4 text-slate-300 mt-0.5"><Icons.Map /></div>
+                  <p className="text-sm text-slate-500 leading-relaxed">{hotel.address}</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black text-slate-400 tracking-widest">{hotel.phone}</p>
+                  <a href={`tel:${hotel.phone.replace(/-/g, '')}`} className="bg-slate-900 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-lg shadow-slate-200 active:scale-95 transition-all">
+                    Call
+                  </a>
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <Icons.Phone />
-          <h3 className="font-bold text-neutral-800">緊急聯絡</h3>
+      <div className="mb-14">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-rose-50 text-rose-600 rounded-xl"><Icons.Phone /></div>
+          <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">緊急聯絡網</h3>
         </div>
-        <div className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
           {EMERGENCY_CONTACTS.map((contact, idx) => (
-            <div key={idx} className={`py-4 flex justify-between items-center ${idx !== EMERGENCY_CONTACTS.length - 1 ? 'border-b border-neutral-50' : ''}`}>
+            <div key={idx} className="p-7 flex justify-between items-center hover:bg-slate-50 transition-colors">
               <div>
-                <p className="text-sm font-bold text-neutral-800">{contact.name}</p>
-                <p className="text-[10px] text-neutral-400 uppercase tracking-widest">{contact.role}</p>
+                <p className="text-base font-bold text-slate-800">{contact.name}</p>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-0.5">{contact.role}</p>
               </div>
-              <a href={`tel:${contact.phone.replace(/-/g, '')}`} className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition-transform">
-                撥打
+              <a href={`tel:${contact.phone.replace(/-/g, '')}`} className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center active:scale-90 transition-all">
+                <Icons.Phone />
               </a>
             </div>
           ))}
@@ -731,33 +772,33 @@ const App: React.FC = () => {
   const currentDayData = TRIP_DATA.find(d => d.day === selectedDay)!;
 
   return (
-    <div className="min-h-screen max-w-md mx-auto relative overflow-x-hidden pb-10">
+    <div className="min-h-screen bg-[#f8fafc] max-w-md mx-auto relative overflow-x-hidden pb-10">
       
       {activeTab === 'itinerary' && (
-        <div className="px-6 pt-10 mb-6 animate-in fade-in duration-500">
-          <div className="flex justify-between items-end mb-8">
+        <div className="px-6 pt-12 mb-8 animate-in fade-in duration-700">
+          <div className="flex justify-between items-start mb-10">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.3em] font-medium text-neutral-400 mb-1">Travel Handbook</p>
-              <h1 className="serif text-3xl font-bold leading-tight text-neutral-800">韓國雪戀<br/>冰壁咖啡 5日</h1>
+              <p className="text-[10px] uppercase tracking-[0.4em] font-black text-slate-300 mb-2">Winter Korea 2026</p>
+              <h1 className="serif text-4xl font-black leading-tight text-slate-900">雪戀冰壁<br/>五日遊小助手</h1>
             </div>
-            <div className="text-right">
-              <span className="text-xs font-black bg-neutral-100 px-3 py-1 rounded-full text-neutral-500">FEB-MAR 2026</span>
+            <div className="pt-2">
+              <div className="w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center text-xl shadow-sm">❄️</div>
             </div>
           </div>
 
-          <div className="flex overflow-x-auto gap-4 pb-2 scroll-smooth no-scrollbar">
+          <div className="flex overflow-x-auto gap-4 pb-4 no-scrollbar">
             {TRIP_DATA.map((day) => (
               <button 
                 key={day.day}
                 onClick={() => setSelectedDay(day.day)}
-                className={`flex-shrink-0 w-16 h-16 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                className={`flex-shrink-0 w-[4.5rem] h-[5rem] rounded-[1.75rem] flex flex-col items-center justify-center transition-all duration-300 ${
                   selectedDay === day.day 
-                    ? 'bg-neutral-900 text-white shadow-lg' 
-                    : 'bg-white text-neutral-400 border border-neutral-100'
+                    ? 'bg-slate-900 text-white shadow-xl translate-y-[-4px]' 
+                    : 'bg-white text-slate-400 border border-slate-100'
                 }`}
               >
-                <span className="text-[10px] font-bold uppercase opacity-60">Day</span>
-                <span className="text-xl font-black">{day.day}</span>
+                <span className="text-[9px] font-black uppercase opacity-60 tracking-widest mb-1">Day</span>
+                <span className="text-2xl font-black">{day.day}</span>
               </button>
             ))}
           </div>
@@ -766,35 +807,40 @@ const App: React.FC = () => {
 
       <div className="transition-all duration-300">
         {activeTab === 'itinerary' && (
-          <div className="px-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-neutral-800">
+          <div className="px-6 pb-32 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-black text-slate-800 tracking-tight">
                   {currentDayData.date} ({currentDayData.weekday})
                 </h2>
-                <span className="text-xs text-neutral-400 font-medium">{currentDayData.location}</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{currentDayData.location}</span>
+                </div>
               </div>
               <WeatherHeader weather={currentDayData.weather} />
             </div>
 
-            <div className="relative pl-6">
-              <div className="absolute left-1 top-4 bottom-4 w-[1px] bg-neutral-200" />
+            <div className="relative pl-7">
+              <div className="absolute left-1.5 top-6 bottom-6 w-[2px] bg-slate-100 rounded-full" />
               {currentDayData.items.map((item) => (
-                <div key={item.id} className="relative mb-6 last:mb-0">
-                  <div className="absolute -left-[24px] top-4 w-3 h-3 rounded-full bg-neutral-200 border-2 border-white shadow-sm" />
+                <div key={item.id} className="relative mb-8 last:mb-0">
+                  <div className="absolute -left-[27px] top-6 w-3 h-3 rounded-full bg-white border-[3px] border-slate-900 shadow-sm z-10" />
                   <ItineraryCard item={item} />
                 </div>
               ))}
             </div>
             
-            <div className="mt-8 pt-8 border-t border-neutral-100">
-              <h3 className="text-xs font-black text-neutral-400 uppercase tracking-widest mb-4">Tonight Accommodation</h3>
-              <div className="bg-white rounded-3xl p-5 border border-neutral-100">
-                <p className="text-sm font-bold text-neutral-800 mb-1">{currentDayData.hotel.name}</p>
-                <p className="text-xs text-neutral-400 mb-3">{currentDayData.hotel.address}</p>
+            <div className="mt-12 pt-10 border-t border-slate-100">
+              <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em] mb-6">Tonight Stay</h3>
+              <div className="bg-white rounded-[2rem] p-7 border border-slate-100 shadow-sm">
+                <p className="text-base font-bold text-slate-800 mb-1">{currentDayData.hotel.name}</p>
+                <p className="text-xs text-slate-400 mb-5 leading-relaxed">{currentDayData.hotel.address}</p>
                 {currentDayData.hotel.phone !== '-' && (
-                  <div className="flex gap-2">
-                    <a href={`tel:${currentDayData.hotel.phone.replace(/-/g, '')}`} className="text-[10px] font-bold px-3 py-1.5 bg-neutral-50 text-neutral-600 rounded-lg">Call Front Desk</a>
+                  <div className="flex gap-3">
+                    <a href={`tel:${currentDayData.hotel.phone.replace(/-/g, '')}`} className="flex-1 bg-slate-900 text-white text-center py-3.5 rounded-2xl text-xs font-bold shadow-lg shadow-slate-200 active:scale-95 transition-all">
+                      聯繫櫃檯
+                    </a>
                   </div>
                 )}
               </div>
@@ -808,47 +854,33 @@ const App: React.FC = () => {
         {activeTab === 'budget' && <BudgetSection />}
       </div>
 
-      {/* Persistent Navigation Bar */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-sm bg-white/80 backdrop-blur-xl border border-white/40 shadow-[0_12px_32px_rgba(0,0,0,0.08)] rounded-[2.5rem] px-2 py-3 flex items-center justify-around z-50">
-        <button 
-          onClick={() => setActiveTab('itinerary')}
-          className={`p-3 rounded-full transition-all ${activeTab === 'itinerary' ? 'bg-neutral-900 text-white shadow-md' : 'text-neutral-300'}`}
-          aria-label="Itinerary"
-        >
-          <Icons.Map />
-        </button>
-        <button 
-          onClick={() => setActiveTab('info')}
-          className={`p-3 rounded-full transition-all ${activeTab === 'info' ? 'bg-neutral-900 text-white shadow-md' : 'text-neutral-300'}`}
-          aria-label="Travel Info"
-        >
-          <Icons.Info />
-        </button>
-        <button 
-          onClick={() => setActiveTab('korean')}
-          className={`p-3 rounded-full transition-all ${activeTab === 'korean' ? 'bg-neutral-900 text-white shadow-md' : 'text-neutral-300'}`}
-          aria-label="Korean Phrases"
-        >
-          <Icons.Translate />
-        </button>
-        <button 
-          onClick={() => setActiveTab('notes')}
-          className={`p-3 rounded-full transition-all ${activeTab === 'notes' ? 'bg-neutral-900 text-white shadow-md' : 'text-neutral-300'}`}
-          aria-label="Notes"
-        >
-          <Icons.Note />
-        </button>
-        <button 
-          onClick={() => setActiveTab('budget')}
-          className={`p-3 rounded-full transition-all ${activeTab === 'budget' ? 'bg-neutral-900 text-white shadow-md' : 'text-neutral-300'}`}
-          aria-label="Budget"
-        >
-          <Icons.Wallet />
-        </button>
+      {/* Floating Navigation Bar */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white/80 backdrop-blur-2xl border border-white/40 shadow-[0_20px_50px_rgba(0,0,0,0.12)] rounded-[2.5rem] px-3 py-3.5 flex items-center justify-around z-[90] animate-in slide-in-from-bottom-10 duration-1000">
+        {[
+          { id: 'itinerary', icon: <Icons.Map />, label: '行程' },
+          { id: 'info', icon: <Icons.Info />, label: '資訊' },
+          { id: 'korean', icon: <Icons.Translate />, label: '翻譯' },
+          { id: 'notes', icon: <Icons.Note />, label: '錦囊' },
+          { id: 'budget', icon: <Icons.Wallet />, label: '預算' }
+        ].map(tab => (
+          <button 
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as AppTab)}
+            className={`flex flex-col items-center gap-1.5 p-2 rounded-2xl transition-all duration-300 ${activeTab === tab.id ? 'text-slate-900 scale-110' : 'text-slate-300 hover:text-slate-400'}`}
+          >
+            <div className={`p-2 rounded-xl transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl rotate-[-4deg]' : ''}`}>
+              {tab.icon}
+            </div>
+            <span className={`text-[9px] font-black uppercase tracking-widest ${activeTab === tab.id ? 'opacity-100' : 'opacity-0 scale-50'}`}>
+              {tab.label}
+            </span>
+          </button>
+        ))}
       </div>
 
-      <div className="fixed -top-24 -right-24 w-64 h-64 bg-orange-100 rounded-full blur-[100px] opacity-30 -z-10" />
-      <div className="fixed -bottom-24 -left-24 w-64 h-64 bg-blue-100 rounded-full blur-[100px] opacity-30 -z-10" />
+      {/* Background Decor */}
+      <div className="fixed -top-40 -right-40 w-96 h-96 bg-blue-100/40 rounded-full blur-[120px] -z-10" />
+      <div className="fixed -bottom-40 -left-40 w-96 h-96 bg-indigo-100/40 rounded-full blur-[120px] -z-10" />
     </div>
   );
 };
