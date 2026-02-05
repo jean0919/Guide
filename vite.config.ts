@@ -5,9 +5,9 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // 如果您的 GitHub Pages 網址是 https://<USERNAME>.github.io/<REPO>/
-  // 請將 base 設定為 '/<REPO>/'。這裡使用 './' 以增加移植性。
-  base: './Guide/',
+  // 假設您的 GitHub Repository 名稱是 Guide
+  // 則部署後的網址會是 https://jean0919.github.io/Guide/
+  base: '/Guide/',
   build: {
     outDir: 'dist',
   },
