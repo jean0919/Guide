@@ -6,6 +6,11 @@ export enum Category {
   ACCOMMODATION = 'ACCOMMODATION'
 }
 
+export enum ShoppingType {
+  PERSONAL = 'PERSONAL',
+  PROXY = 'PROXY'
+}
+
 export interface WeatherInfo {
   temp: string;
   condition: string;
@@ -41,6 +46,17 @@ export interface Expense {
   amount: number;
   category: string;
   date: string;
-  payer: string; // 支付者姓名
-  participants: string[]; // 參與分帳的人員名單
+  payer: string;
+  participants: string[];
+}
+
+export interface ShoppingItem {
+  id: string;
+  title: string;
+  price?: string;
+  quantity: number;
+  type: ShoppingType;
+  owner?: string; // 對於代購清單很有用
+  note?: string;
+  isPurchased: boolean;
 }
